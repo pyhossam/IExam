@@ -657,7 +657,9 @@ public class ExamManagementService : IExamManagementService
 
     private static Guid RequireTenantInstitution(Guid? institutionId)
     {
-        if (institutionId is { } value && value != Guid.Empty)
+        // Guid.Empty is the persisted identifier of the legacy/default institution.
+        // Only a null value means that the account is not linked to an institution.
+        if (institutionId is { } value)
             return value;
 
         throw new UnauthorizedAccessException("Current user is not linked to an institution.");
