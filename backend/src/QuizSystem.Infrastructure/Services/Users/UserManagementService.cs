@@ -245,7 +245,9 @@ public class UserManagementService : IUserManagementService
 
     private static Guid ResolveTenantInstitution(Guid? institutionId, bool isSuperAdmin)
     {
-        if (institutionId is { } value && value != Guid.Empty)
+        // Guid.Empty is the persisted identifier of the legacy/default institution.
+        // A null value alone means that the account is not assigned to a tenant.
+        if (institutionId is { } value)
             return value;
 
         if (isSuperAdmin)
