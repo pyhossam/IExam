@@ -680,6 +680,31 @@ export async function deleteManagedUser(userId) {
   });
 }
 
+export async function downloadStudentImportTemplate() {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/admin/students/import/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) return parseResponse(response);
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "QuizSystem_Students_Import_Template.xlsx";
+  anchor.click();
+  window.URL.revokeObjectURL(url);
+}
+
+export async function previewStudentImport(file) {
+  const form = new FormData();
+  form.append("file", file);
+  return apiRequest("/admin/students/import/preview", { method: "POST", body: form });
+}
+
+export async function confirmStudentImport(payload) {
+  return apiJson("/admin/students/import/confirm", "POST", payload);
+}
+
 export async function adminResetManagedUserPassword(userId, newPassword) {
   return apiJson(`/admin/users/${userId}/reset-password`, "POST", { newPassword });
 }

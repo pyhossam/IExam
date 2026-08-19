@@ -10,6 +10,9 @@ import {
   updateStudent,
   getSchoolNationalities,
   getSchoolStudents,
+  downloadStudentImportTemplate,
+  previewStudentImport,
+  confirmStudentImport,
 } from "../../services/api";
 import "../admin/school/schoolManagement.css";
 
@@ -63,6 +66,10 @@ export default function StudentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [importPreview, setImportPreview] = useState(null);
+  const [importFile, setImportFile] = useState(null);
+  const [gradeMappings, setGradeMappings] = useState({});
+  const [branchMappings, setBranchMappings] = useState({});
 
   async function load() {
     try {
@@ -188,6 +195,35 @@ export default function StudentsPage() {
     }
   }
 
+  async function analyzeImport() {
+    if (!importFile) { setError("اختر ملف Excel أولاً"); return; }
+    try {
+      setLoading(true); setError(""); setSuccess("");
+      const preview = await previewStudentImport(importFile);
+      setImportPreview(preview);
+      setGradeMappings(Object.fromEntries((preview.gradeMappings || []).map(x => [x.sourceValue, x.targetValue || ""])));
+      setBranchMappings(Object.fromEntries((preview.branchMappings || []).map(x => [x.sourceValue, x.targetValue || ""])));
+    } catch (err) { setError(err.message || "تعذر تحليل ملف Excel"); }
+    finally { setLoading(false); }
+  }
+
+  async function importStudents() {
+    const gradesComplete = (importPreview.gradeMappings || []).every(x => gradeMappings[x.sourceValue]);
+    const branchesComplete = (importPreview.branchMappings || []).every(x => branchMappings[x.sourceValue]);
+    if (!gradesComplete || !branchesComplete) { setError("يجب ربط جميع قيم المرحلة والفرع قبل الاستيراد"); return; }
+    try {
+      setLoading(true); setError("");
+      const result = await confirmStudentImport({
+        rows: importPreview.rows,
+        gradeMappings: Object.entries(gradeMappings).map(([sourceValue, targetValue]) => ({ sourceValue, targetValue })),
+        branchMappings: Object.entries(branchMappings).map(([sourceValue, targetValue]) => ({ sourceValue, targetValue })),
+      });
+      setSuccess(`تم استيراد ${result.inserted} طالب، وتخطي ${result.skipped} صف.`);
+      setImportPreview(null); setImportFile(null); await load();
+    } catch (err) { setError(err.message || "تعذر استيراد الطلاب"); }
+    finally { setLoading(false); }
+  }
+
   return (
     <div className="education-admin-page">
       <div className="education-page-header">
@@ -195,9 +231,11 @@ export default function StudentsPage() {
           <h1>إدارة الطلاب</h1>
           <p>إضافة وتعديل الطلاب مع ربط الصف بالمراحل المنشأة داخل الإدارة التعليمية.</p>
         </div>
-        <button className="education-primary-btn" type="button" onClick={openCreate}>
-          إضافة طالب
-        </button>
+        <div className="education-actions">
+          <button className="education-ghost-btn" type="button" onClick={downloadStudentImportTemplate}>تحميل نموذج Excel</button>
+          <button className="education-ghost-btn" type="button" onClick={() => { setImportPreview({ step: "upload" }); setImportFile(null); }}>استيراد من Excel</button>
+          <button className="education-primary-btn" type="button" onClick={openCreate}>إضافة طالب</button>
+        </div>
       </div>
 
       {error && <div className="alert error">{error}</div>}
@@ -386,6 +424,32 @@ export default function StudentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {importPreview && (
+        <div className="education-modal-backdrop" onClick={() => !loading && setImportPreview(null)}>
+          <div className="education-modal-card student-import-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="education-modal-head">
+              <div><h2>استيراد الطلاب من Excel</h2><p>حلّل الملف، راجع الربط، ثم اعتمد الاستيراد.</p></div>
+              <button className="education-ghost-btn" disabled={loading} onClick={() => setImportPreview(null)}>إغلاق</button>
+            </div>
+            {!importPreview.rows ? <>
+              <div className="student-import-drop">
+                <input type="file" accept=".xlsx,.xlsm" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
+                <strong>{importFile?.name || "اختر ملف Excel المعبأ باستخدام النموذج"}</strong>
+                <span>الحد الأقصى 2000 طالب في كل عملية استيراد</span>
+              </div>
+              <div className="education-form-actions"><button className="education-primary-btn" disabled={loading || !importFile} onClick={analyzeImport}>{loading ? "جاري التحليل..." : "تحليل الملف ومطابقة البيانات"}</button><button className="education-ghost-btn" onClick={downloadStudentImportTemplate}>تحميل النموذج</button></div>
+            </> : <>
+              <div className="student-import-summary"><span>الملف <b>{importPreview.fileName}</b></span><span>عدد الصفوف <b>{importPreview.rows.length}</b></span><span>المطابقة التلقائية <b>{[...(importPreview.gradeMappings || []), ...(importPreview.branchMappings || [])].filter(x => x.autoMatched).length}</b></span></div>
+              <div className="student-mapping-grid">
+                <section><h3>ربط المراحل</h3>{(importPreview.gradeMappings || []).map(item => <label key={item.sourceValue}><span>{item.sourceValue}{item.autoMatched && <small>مطابقة تلقائية</small>}</span><select value={gradeMappings[item.sourceValue] || ""} onChange={(e) => setGradeMappings({...gradeMappings,[item.sourceValue]:e.target.value})}><option value="">اختر المرحلة المسجلة</option>{(importPreview.gradeOptions || []).map(x => <option key={x.value} value={x.value}>{x.label}</option>)}</select></label>)}</section>
+                <section><h3>ربط الفروع</h3>{(importPreview.branchMappings || []).map(item => <label key={item.sourceValue}><span>{item.sourceValue}{item.autoMatched && <small>مطابقة تلقائية</small>}</span><select value={branchMappings[item.sourceValue] || ""} onChange={(e) => setBranchMappings({...branchMappings,[item.sourceValue]:e.target.value})}><option value="">اختر الفرع المعتمد</option>{(importPreview.branchOptions || []).map(x => <option key={x.value} value={x.value}>{x.label}</option>)}</select></label>)}</section>
+              </div>
+              <div className="education-form-actions"><button className="education-primary-btn" disabled={loading} onClick={importStudents}>{loading ? "جاري الاستيراد..." : "اعتماد واستيراد الطلاب"}</button><button className="education-ghost-btn" onClick={() => setImportPreview({step:"upload"})}>اختيار ملف آخر</button></div>
+            </>}
           </div>
         </div>
       )}

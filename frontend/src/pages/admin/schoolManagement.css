@@ -227,6 +227,20 @@
   padding: 22px;
 }
 
+.student-import-modal { width: min(920px, calc(100vw - 32px)); }
+.student-import-drop { display: grid; place-items: center; gap: 10px; padding: 30px; margin: 14px 0; border: 2px dashed #b8c8e8; border-radius: 18px; background: #f7faff; text-align: center; }
+.student-import-drop input { max-width: 100%; }
+.student-import-drop span { color: #667085; font-size: 13px; }
+.student-import-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.student-import-summary span { padding: 10px 14px; border-radius: 12px; background: #eef4ff; color: #344054; }
+.student-mapping-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; max-height: 52vh; overflow: auto; }
+.student-mapping-grid section { padding: 16px; border: 1px solid #e4e9f3; border-radius: 16px; }
+.student-mapping-grid h3 { margin: 0 0 12px; }
+.student-mapping-grid label { display: grid; grid-template-columns: minmax(120px,1fr) minmax(160px,1.4fr); align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed #e4e9f3; }
+.student-mapping-grid label span { display: grid; gap: 3px; font-weight: 700; }
+.student-mapping-grid label small { color: #16803c; font-size: 11px; }
+.student-mapping-grid select { min-height: 42px; border: 1px solid #d5ddec; border-radius: 10px; padding: 0 10px; background: #fff; }
+
 .education-modal-head {
   display: flex;
   justify-content: space-between;
@@ -266,6 +280,8 @@
 }
 
 @media (max-width: 720px) {
+  .student-mapping-grid { grid-template-columns: 1fr; }
+  .student-mapping-grid label { grid-template-columns: 1fr; }
   .education-form-grid {
     grid-template-columns: 1fr;
   }
