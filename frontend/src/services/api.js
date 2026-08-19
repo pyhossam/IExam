@@ -836,8 +836,14 @@ export const superAdminApi = {
   createInstitution: (payload) =>
     apiJson("/super-admin/institutions", "POST", payload),
 
+  updateInstitution: (institutionId, payload) =>
+    apiJson(`/super-admin/institutions/${institutionId}`, "PUT", payload),
+
   createInstitutionAdmin: (institutionId, payload) =>
     apiJson(`/super-admin/institutions/${institutionId}/admins`, "POST", payload),
+
+  updateInstitutionAdmin: (institutionId, adminId, payload) =>
+    apiJson(`/super-admin/institutions/${institutionId}/admins/${adminId}`, "PUT", payload),
 
   changeInstitutionStatus: (institutionId, isActive) =>
     apiRequest(`/super-admin/institutions/${institutionId}/status?isActive=${isActive}`, { method: "PATCH" }),
