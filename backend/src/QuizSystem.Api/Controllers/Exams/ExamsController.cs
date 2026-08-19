@@ -103,7 +103,7 @@ public ExamsController(IExamManagementService examManagementService, IAiQuestion
     }
 
     [HttpPost("{examId:guid}/questions/ai-preview")]
-    [RequestSizeLimit(25_000_000)]
+    [RequestSizeLimit(30_000_000)]
     public async Task<IActionResult> GenerateAiQuestionPreview(Guid examId, [FromForm] int count, [FromForm] IFormFile? file, CancellationToken cancellationToken)
     {
         await RequireExamAccess(examId, cancellationToken);
@@ -115,25 +115,26 @@ public ExamsController(IExamManagementService examManagementService, IAiQuestion
         var clos = exam.SubjectId.HasValue
             ? await _db.CourseLearningOutcomes.AsNoTracking().Where(x => x.SubjectId == exam.SubjectId && x.InstitutionId == exam.InstitutionId && x.IsActive).ToListAsync(cancellationToken)
             : [];
-        var content = file is null ? null : await ExtractPdfText(file, cancellationToken);
         var topic = $"{exam.Title}\n{exam.Topic}\n{exam.Description}";
+        string? summarizedContent = null;
+        if (file is not null)
+        {
+            var extractedContent = await ExtractPdfText(file, cancellationToken);
+            summarizedContent = await _aiQuestionGenerator.SummarizeEducationalContentAsync(
+                extractedContent,
+                topic,
+                cancellationToken);
+        }
         var cloCodes = clos.ToDictionary(x => x.Id.ToString(), x => x.Code);
         var batches = Enumerable.Range(0, (int)Math.Ceiling(count / 12m))
             .Select(index => Math.Min(12, count - index * 12))
             .ToList();
         var tasks = batches.Select((batchCount, index) =>
         {
-            string? contentPart = null;
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                var partSize = (int)Math.Ceiling(content.Length / (double)batches.Count);
-                var start = Math.Min(index * partSize, content.Length);
-                contentPart = content.Substring(start, Math.Min(partSize, content.Length - start));
-            }
             return _aiQuestionGenerator.GenerateQuestionsAsync(
                 topic,
                 batchCount,
-                contentPart,
+                summarizedContent,
                 BuildBlueprintInstructions(exam, cloCodes, batchCount, count, index + 1, batches.Count),
                 cancellationToken);
         });

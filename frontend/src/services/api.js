@@ -259,6 +259,13 @@ export function getReadableErrorMessage(error, fallback = "حدث خطأ غير 
 async function parseResponse(res) {
   const type = res.headers.get("content-type") || "";
 
+  if (res.status === 413) {
+    throw buildApiError(
+      "حجم الملف أكبر من الحد المسموح. يجب ألا يتجاوز ملف PDF حجم 25 ميجابايت.",
+      413
+    );
+  }
+
   if (res.status === 401 || res.status === 403) {
     let payload = null;
     let message = "غير مصرح لك باستخدام هذه الخدمة";

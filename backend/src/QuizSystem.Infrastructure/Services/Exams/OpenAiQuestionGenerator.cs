@@ -24,6 +24,74 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
         _logger = logger;
     }
 
+    public async Task<string> SummarizeEducationalContentAsync(
+        string educationalContent,
+        string? examContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(educationalContent))
+            throw new InvalidOperationException("تعذر تلخيص ملف PDF لأنه لا يحتوي على نص قابل للقراءة.");
+
+        var apiKey = ResolveApiKey();
+        var model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
+        var baseUrl = _configuration["OpenAI:BaseUrl"] ?? "https://api.openai.com/v1/";
+        var payload = new
+        {
+            model,
+            temperature = 0.2,
+            messages = new object[]
+            {
+                new
+                {
+                    role = "system",
+                    content = "أنت خبير تربوي. لخّص المحتوى التعليمي بدقة وبنفس لغته، وحافظ على الحقائق والمصطلحات والتعريفات والقواعد والأمثلة التي تصلح لبناء أسئلة قابلة للقياس. لا تضف معلومات غير موجودة في المصدر."
+                },
+                new
+                {
+                    role = "user",
+                    content = $"""
+                    سياق الاختبار:
+                    {examContext ?? "غير محدد"}
+
+                    لخّص النص التالي في ملخص تعليمي منظم لا يتجاوز 6000 حرف. غطّ جميع الأفكار الرئيسية، والمفاهيم، والعلاقات، والأمثلة المهمة، والنقاط التي يمكن تقييمها باختبار:
+
+                    {educationalContent}
+                    """
+                }
+            }
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/"), "chat/completions"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("استغرق تلخيص ملف PDF وقتاً أطول من المتوقع. جرّب ملفاً أصغر ثم أعد المحاولة.");
+        }
+
+        using (response)
+        {
+            var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("OpenAI summarization failed: {StatusCode} - {Body}", response.StatusCode, raw);
+                throw new InvalidOperationException("تعذر تلخيص المحتوى التعليمي بواسطة الذكاء الاصطناعي.");
+            }
+
+            var summary = ExtractMessageContent(raw).Trim();
+            if (string.IsNullOrWhiteSpace(summary))
+                throw new InvalidOperationException("لم يتمكن الذكاء الاصطناعي من إعداد ملخص للمحتوى التعليمي.");
+
+            return summary.Length <= 6000 ? summary : summary[..6000];
+        }
+    }
+
     public async Task<List<GeneratedQuestionDto>> GenerateQuestionsAsync(
         string topic,
         int count,
@@ -139,7 +207,7 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
 مخطط ورقة الاختبار المطلوب:
 {blueprintInstructions ?? "توزيع متوازن على مستويات Bloom، وبدون CLO ما لم يذكر خلاف ذلك."}
 
-المحتوى التعليمي المستخرج من PDF:
+الملخص التعليمي المُعد أولاً من ملف PDF:
 {(string.IsNullOrWhiteSpace(educationalContent) ? "لا يوجد ملف؛ اعتمد على وصف الاختبار." : educationalContent)}
 
 الشروط:

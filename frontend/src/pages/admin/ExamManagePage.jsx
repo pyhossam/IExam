@@ -384,6 +384,10 @@ export default function ExamManagePage() {
 
   async function generateWithAi(e) {
     e.preventDefault();
+    if (aiPdf && aiPdf.size > 25 * 1024 * 1024) {
+      setError("حجم ملف PDF أكبر من الحد المسموح (25 ميجابايت). اضغط الملف أو اختر ملفاً أصغر.");
+      return;
+    }
     try {
       setActionLoading(true); setError(""); setSuccess("");
       const drafts = await generateAiQuestionPreview(examId, aiCount, aiPdf);
@@ -704,8 +708,8 @@ export default function ExamManagePage() {
           <form className="ai-generator-form" onSubmit={generateWithAi}>
             <div><label>عدد الأسئلة المطلوب</label><input type="number" min="1" max="50" value={aiCount} onChange={(e) => setAiCount(Number(e.target.value))}/></div>
             <div><label>المحتوى التعليمي PDF (اختياري)</label><input type="file" accept="application/pdf,.pdf" onChange={(e) => setAiPdf(e.target.files?.[0] || null)}/></div>
-            <div className="ai-source-note"><b>مصادر التوليد</b><span>وصف الاختبار: {exam.description || exam.topic || "غير محدد"}</span><span>المخطط: {settings.assessmentType === "CloAligned" ? "CLO + Bloom" : "عام + Bloom"}</span><span>PDF: {aiPdf?.name || "بدون ملف"}</span><span>يُرسل النص المستخرج إلى مزود AI لإنشاء الأسئلة ولا يُحفظ ملف PDF على الخادم.</span></div>
-            <button className="primary-btn" type="submit" disabled={actionLoading}>{actionLoading ? "يقوم AI بتحليل المحتوى…" : "توليد ومعاينة الأسئلة"}</button>
+            <div className="ai-source-note"><b>مصادر التوليد</b><span>وصف الاختبار: {exam.description || exam.topic || "غير محدد"}</span><span>المخطط: {settings.assessmentType === "CloAligned" ? "CLO + Bloom" : "عام + Bloom"}</span><span>PDF: {aiPdf?.name || "بدون ملف"}</span><span>{aiPdf ? "يستخرج النظام النص ويلخص المحتوى تعليمياً أولاً، ثم ينشئ الأسئلة من الملخص. لا يُحفظ ملف PDF على الخادم." : "سيتم إنشاء الأسئلة من وصف الاختبار ومخطط الورقة."}</span></div>
+            <button className="primary-btn" type="submit" disabled={actionLoading}>{actionLoading ? (aiPdf ? "تلخيص PDF ثم إنشاء الأسئلة…" : "إنشاء الأسئلة…") : "توليد ومعاينة الأسئلة"}</button>
           </form>
           {aiDrafts.length > 0 && <div className="ai-drafts"><div className="ai-drafts-head"><div><h4>معاينة الأسئلة المولدة</h4><p>يمكنك تعديل أي سؤال قبل إضافته إلى البنك.</p></div><button type="button" className="primary-btn" onClick={approveAiDrafts} disabled={actionLoading}>اعتماد جميع الأسئلة ({aiDrafts.length})</button></div>{aiDrafts.map((draft, index) => <article className="ai-draft-card" key={index}>
             <div className="ai-draft-top"><strong>سؤال {index + 1}</strong><select value={draft.cognitiveLevel || "Understand"} onChange={(e) => updateAiDraft(index, "cognitiveLevel", e.target.value)}>{bloomLevels.map(([key, label]) => <option key={key} value={key}>{label} · {key}</option>)}</select><select value={draft.courseLearningOutcomeId || ""} onChange={(e) => updateAiDraft(index, "courseLearningOutcomeId", e.target.value)}><option value="">بدون CLO</option>{courseClos.map((clo) => <option key={clo.id} value={clo.id}>{clo.code}</option>)}</select><button type="button" className="danger-btn slim" onClick={() => setAiDrafts((items) => items.filter((_, i) => i !== index))}>استبعاد</button></div>
