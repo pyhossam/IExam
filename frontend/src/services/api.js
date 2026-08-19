@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "https://localhost:51727/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
 export async function submitStudentAccountRequest(payload) {
   return apiJson("/public/student-account-requests", "POST", payload);

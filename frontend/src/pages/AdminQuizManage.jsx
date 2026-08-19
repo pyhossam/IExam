@@ -261,7 +261,7 @@ export default function AdminExamManage() {
           <div className="template-box">
             <a
               className="ghost-btn"
-              href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quizId}/questions/template`}
+              href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quizId}/questions/template`}
               target="_blank"
               rel="noreferrer"
             >
@@ -283,13 +283,13 @@ export default function AdminExamManage() {
           </div>
 
           <div className="action-row">
-            <a className="primary-btn" href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quiz.id}/pdf/questions`} target="_blank" rel="noreferrer">
+            <a className="primary-btn" href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quiz.id}/pdf/questions`} target="_blank" rel="noreferrer">
               طباعة الأسئلة بدون إجابات
             </a>
-            <a className="ghost-btn" href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quiz.id}/pdf/questions?withAnswers=true`} target="_blank" rel="noreferrer">
+            <a className="ghost-btn" href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quiz.id}/pdf/questions?withAnswers=true`} target="_blank" rel="noreferrer">
               طباعة الأسئلة مع الإجابات
             </a>
-            <a className="ghost-btn" href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quiz.id}/pdf/questions?withAnswers=true`} target="_blank" rel="noreferrer">
+            <a className="ghost-btn" href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quiz.id}/pdf/questions?withAnswers=true`} target="_blank" rel="noreferrer">
               طباعة نموذج الإجابة الكامل
             </a>
           </div>
@@ -313,7 +313,7 @@ export default function AdminExamManage() {
           <div className="action-row top-space">
             <a
               className="primary-btn"
-              href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quiz.id}/pdf/random-forms?formsCount=${formsCount}`}
+              href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quiz.id}/pdf/random-forms?formsCount=${formsCount}`}
               target="_blank"
               rel="noreferrer"
             >
@@ -322,7 +322,7 @@ export default function AdminExamManage() {
 
             <a
               className="ghost-btn"
-              href={`${import.meta.env.VITE_API_BASE || "https://localhost:51727/api"}/exams/${quiz.id}/pdf/random-forms-answer-keys?formsCount=${formsCount}`}
+              href={`${import.meta.env.VITE_API_BASE || "/api"}/exams/${quiz.id}/pdf/random-forms-answer-keys?formsCount=${formsCount}`}
               target="_blank"
               rel="noreferrer"
             >
