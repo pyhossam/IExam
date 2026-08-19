@@ -33,7 +33,7 @@ public class SuperAdminController : ControllerBase
                 i.Name,
                 i.Type,
                 i.IsActive,
-                admins = i.Users.Count(u => u.Role == UserRole.InstitutionAdmin),
+                admins = i.Users.Count(u => u.Role == UserRole.InstitutionAdmin || u.Role == UserRole.Admin),
                 users = i.Users.Count,
                 students = _db.Students.Count(s => s.InstitutionId == i.Id),
                 parents = _db.Parents.Count(p => p.InstitutionId == i.Id),
@@ -74,7 +74,7 @@ public class SuperAdminController : ControllerBase
                 x.ExamManagementMode,
                 x.CreatedAtUtc,
                 Admins = x.Users
-                    .Where(u => u.Role == UserRole.InstitutionAdmin)
+                    .Where(u => u.Role == UserRole.InstitutionAdmin || u.Role == UserRole.Admin)
                     .OrderBy(u => u.UserName)
                     .Select(u => new { u.Id, u.UserName, u.Email, u.IsActive })
                     .ToList()
@@ -173,7 +173,8 @@ public class SuperAdminController : ControllerBase
         CancellationToken cancellationToken)
     {
         var user = await _db.Users.FirstOrDefaultAsync(
-            x => x.Id == adminId && x.InstitutionId == institutionId && x.Role == UserRole.InstitutionAdmin,
+            x => x.Id == adminId && x.InstitutionId == institutionId &&
+                 (x.Role == UserRole.InstitutionAdmin || x.Role == UserRole.Admin),
             cancellationToken);
         if (user is null) return NotFound(new ProblemDetails { Title = "Institution administrator not found" });
 
