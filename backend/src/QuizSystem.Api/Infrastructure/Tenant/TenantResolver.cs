@@ -45,7 +45,9 @@ public static class TenantResolver
     public static async Task<Guid> RequireCurrentInstitutionIdAsync(AppDbContext db, ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         var institutionId = await GetCurrentInstitutionIdAsync(db, user, cancellationToken);
-        if (institutionId is null || institutionId.Value == Guid.Empty) throw new UnauthorizedAccessException("Current user is not linked to an institution.");
+        // Guid.Empty is the persisted identifier of the legacy/default institution.
+        // An actually unassigned account has InstitutionId = null and must still be rejected.
+        if (institutionId is null) throw new UnauthorizedAccessException("Current user is not linked to an institution.");
         return institutionId.Value;
     }
 }
