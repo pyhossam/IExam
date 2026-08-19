@@ -167,7 +167,23 @@
 .sa-btn.primary:hover { background: var(--sa-primary-dark); }
 .sa-btn.soft { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.28); }
 .sa-btn.ghost { background: var(--sa-soft); color: var(--sa-primary); }
+.sa-btn.danger { background: var(--sa-danger); color: #fff; box-shadow: 0 12px 24px rgba(220,38,38,.2); }
+.sa-btn.danger:hover { background: #b91c1c; }
+.sa-btn.danger-outline { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
 .sa-btn.full { width: 100%; }
+
+.sa-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 18px;
+  border-color: #fecdd3;
+  background: linear-gradient(135deg, #fff, #fff1f2);
+}
+.sa-danger-zone h2 { margin: 6px 0; font-size: 21px; }
+.sa-danger-zone p { margin: 0; color: var(--sa-muted); line-height: 1.7; }
+.sa-danger-label { color: #be123c; font-size: 12px; font-weight: 900; }
 
 .sa-stats-grid {
   display: grid;
@@ -409,6 +425,32 @@
 .sa-modal-head p { margin: 0; color: var(--sa-muted); }
 .sa-modal-head > button { width: 38px; height: 38px; border: 0; border-radius: 12px; background: #f1f5f9; font-size: 24px; cursor: pointer; }
 
+.sa-reset-modal { border-top: 6px solid var(--sa-danger); }
+.sa-reset-warning {
+  display: grid;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid #fecaca;
+  border-radius: 16px;
+  background: #fef2f2;
+  color: #991b1b;
+  line-height: 1.65;
+}
+.sa-reset-warning span { color: #7f1d1d; font-size: 14px; }
+.sa-verification-code {
+  padding: 16px;
+  border: 2px dashed #fda4af;
+  border-radius: 18px;
+  background: #fff7f7;
+  color: #9f1239;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  direction: ltr;
+  text-align: center;
+  user-select: none;
+}
+
 .sa-alert,
 .sa-empty {
   padding: 14px 16px;
@@ -445,5 +487,6 @@
   .sa-field-row { grid-template-columns: 1fr; }
   .sa-card-head { flex-direction: column; align-items: stretch; }
   .sa-card-actions { flex-direction: column; }
+  .sa-danger-zone { align-items: stretch; flex-direction: column; }
   .sa-admin-row { align-items: flex-start; flex-wrap: wrap; }
 }

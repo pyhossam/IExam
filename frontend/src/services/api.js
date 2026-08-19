@@ -848,6 +848,12 @@ export const superAdminApi = {
   changeInstitutionStatus: (institutionId, isActive) =>
     apiRequest(`/super-admin/institutions/${institutionId}/status?isActive=${isActive}`, { method: "PATCH" }),
 
+  createDataResetChallenge: (institutionId = null) =>
+    apiJson("/super-admin/data-reset/challenge", "POST", { institutionId }),
+
+  resetData: (payload) =>
+    apiJson("/super-admin/data-reset", "POST", payload),
+
   getDashboard: () =>
     apiRequest("/super-admin/dashboard"),
 };

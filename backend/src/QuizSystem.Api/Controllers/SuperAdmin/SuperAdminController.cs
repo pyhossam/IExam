@@ -5,6 +5,9 @@ using QuizSystem.Application.Contracts.Auth;
 using QuizSystem.Domain.Entities;
 using QuizSystem.Domain.Enums;
 using QuizSystem.Infrastructure.Persistence;
+using System.Collections.Concurrent;
+using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace QuizSystem.Api.Controllers.SuperAdmin;
 
@@ -13,6 +16,7 @@ namespace QuizSystem.Api.Controllers.SuperAdmin;
 [Authorize(Policy = "SuperAdminOnly")]
 public class SuperAdminController : ControllerBase
 {
+    private static readonly ConcurrentDictionary<Guid, ResetChallenge> ResetChallenges = new();
     private readonly AppDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
 
@@ -202,6 +206,126 @@ public class SuperAdminController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
         return Ok(new { user.Id, user.UserName, user.Email, user.IsActive, user.InstitutionId });
     }
+
+    [HttpPost("data-reset/challenge")]
+    public async Task<IActionResult> CreateDataResetChallenge([FromBody] CreateDataResetChallengeRequest request, CancellationToken cancellationToken)
+    {
+        string targetName;
+        if (request.InstitutionId.HasValue)
+        {
+            targetName = await _db.Institutions
+                .Where(x => x.Id == request.InstitutionId.Value)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new KeyNotFoundException("المؤسسة المحددة غير موجودة.");
+        }
+        else
+        {
+            targetName = "جميع المؤسسات";
+        }
+
+        var challengeId = Guid.NewGuid();
+        var verificationCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+        var expiresAtUtc = DateTime.UtcNow.AddMinutes(5);
+        ResetChallenges[challengeId] = new ResetChallenge(
+            CurrentSuperAdminId(), request.InstitutionId, verificationCode, expiresAtUtc);
+
+        RemoveExpiredChallenges();
+        return Ok(new { challengeId, verificationCode, expiresAtUtc, targetName });
+    }
+
+    [HttpPost("data-reset")]
+    public async Task<IActionResult> ResetData([FromBody] ResetDataRequest request, CancellationToken cancellationToken)
+    {
+        if (!ResetChallenges.TryRemove(request.ChallengeId, out var challenge) ||
+            challenge.UserId != CurrentSuperAdminId() ||
+            challenge.InstitutionId != request.InstitutionId ||
+            challenge.ExpiresAtUtc < DateTime.UtcNow ||
+            !CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(challenge.VerificationCode),
+                System.Text.Encoding.UTF8.GetBytes(request.VerificationCode?.Trim() ?? string.Empty)))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "رمز التحقق غير صحيح أو انتهت صلاحيته. أنشئ رمزاً جديداً وحاول مرة أخرى."
+            });
+        }
+
+        var institutionIds = request.InstitutionId.HasValue
+            ? new[] { request.InstitutionId.Value }
+            : await _db.Institutions.Select(x => x.Id).ToArrayAsync(cancellationToken);
+
+        if (request.InstitutionId.HasValue && !await _db.Institutions.AnyAsync(x => x.Id == request.InstitutionId.Value, cancellationToken))
+            return NotFound(new ProblemDetails { Title = "المؤسسة المحددة غير موجودة." });
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+        var deletedAttempts = await _db.Attempts.Where(x => institutionIds.Contains(x.InstitutionId)).CountAsync(cancellationToken);
+        var deletedExams = await _db.Exams.Where(x => institutionIds.Contains(x.InstitutionId)).CountAsync(cancellationToken);
+        var deletedStudents = await _db.Students.Where(x => institutionIds.Contains(x.InstitutionId)).CountAsync(cancellationToken);
+        var deletedUsers = await _db.Users.Where(x => x.InstitutionId.HasValue && institutionIds.Contains(x.InstitutionId.Value) &&
+            x.Role != UserRole.Admin && x.Role != UserRole.InstitutionAdmin).CountAsync(cancellationToken);
+
+        await _db.ExamAttemptDraftAnswers.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.ExamAttemptViolations.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.AttemptAnswers.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.ExamAttemptQuestionSnapshots.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Attempts.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Registrations.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Questions.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Exams.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.SectionStudents.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.ParentStudentLinks.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.TeacherSubjects.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.CourseLearningOutcomes.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.ClassSections.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Subjects.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.GradeLevels.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.StudentAccountRequests.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+
+        var tenantUserIds = _db.Users
+            .Where(x => x.InstitutionId.HasValue && institutionIds.Contains(x.InstitutionId.Value))
+            .Select(x => x.Id);
+        await _db.RefreshTokens.Where(x => tenantUserIds.Contains(x.UserId)).ExecuteDeleteAsync(cancellationToken);
+
+        await _db.Users
+            .Where(x => x.InstitutionId.HasValue && institutionIds.Contains(x.InstitutionId.Value) &&
+                (x.Role == UserRole.Admin || x.Role == UserRole.InstitutionAdmin))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.StudentProfileId, (Guid?)null)
+                .SetProperty(x => x.ParentProfileId, (Guid?)null)
+                .SetProperty(x => x.TeacherProfileId, (Guid?)null), cancellationToken);
+
+        await _db.Users.Where(x => x.InstitutionId.HasValue && institutionIds.Contains(x.InstitutionId.Value) &&
+            x.Role != UserRole.Admin && x.Role != UserRole.InstitutionAdmin).ExecuteDeleteAsync(cancellationToken);
+        await _db.Parents.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Teachers.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Students.Where(x => institutionIds.Contains(x.InstitutionId)).ExecuteDeleteAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return Ok(new
+        {
+            message = request.InstitutionId.HasValue ? "تمت إعادة ضبط بيانات المؤسسة بنجاح." : "تمت إعادة ضبط بيانات جميع المؤسسات بنجاح.",
+            institutionsReset = institutionIds.Length,
+            deletedUsers,
+            deletedStudents,
+            deletedExams,
+            deletedAttempts
+        });
+    }
+
+    private Guid CurrentSuperAdminId()
+        => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? id
+            : throw new UnauthorizedAccessException("تعذر تحديد حساب المشرف العام.");
+
+    private static void RemoveExpiredChallenges()
+    {
+        foreach (var item in ResetChallenges.Where(x => x.Value.ExpiresAtUtc < DateTime.UtcNow))
+            ResetChallenges.TryRemove(item.Key, out _);
+    }
+
+    private sealed record ResetChallenge(Guid UserId, Guid? InstitutionId, string VerificationCode, DateTime ExpiresAtUtc);
 }
 
 public sealed class CreateInstitutionRequest
@@ -242,4 +366,16 @@ public sealed class UpdateInstitutionAdminRequest
     public string? Password { get; set; }
     public bool IsActive { get; set; } = true;
     public bool MustChangePassword { get; set; } = true;
+}
+
+public sealed class CreateDataResetChallengeRequest
+{
+    public Guid? InstitutionId { get; set; }
+}
+
+public sealed class ResetDataRequest
+{
+    public Guid? InstitutionId { get; set; }
+    public Guid ChallengeId { get; set; }
+    public string VerificationCode { get; set; } = string.Empty;
 }

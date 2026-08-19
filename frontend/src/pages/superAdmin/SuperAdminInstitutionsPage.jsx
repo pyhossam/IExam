@@ -36,6 +36,8 @@ export default function SuperAdminInstitutionsPage() {
   const [search, setSearch] = useState("");
   const [editingInstitution, setEditingInstitution] = useState(null);
   const [editingAdmin, setEditingAdmin] = useState(null);
+  const [resetDialog, setResetDialog] = useState(null);
+  const [verificationInput, setVerificationInput] = useState("");
 
   async function load() {
     const data = await superAdminApi.getInstitutions();
@@ -156,6 +158,47 @@ export default function SuperAdminInstitutionsPage() {
     }
   }
 
+  async function openResetDialog(institution = null) {
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    try {
+      const challenge = await superAdminApi.createDataResetChallenge(institution?.id || null);
+      setVerificationInput("");
+      setResetDialog({
+        ...challenge,
+        institutionId: institution?.id || null,
+        institutionName: institution?.name || "جميع المؤسسات",
+      });
+    } catch (err) {
+      setError(err.message || "تعذر إنشاء رمز التحقق لإعادة ضبط البيانات");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmDataReset(e) {
+    e.preventDefault();
+    if (!resetDialog || verificationInput.trim() !== String(resetDialog.verificationCode)) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await superAdminApi.resetData({
+        institutionId: resetDialog.institutionId,
+        challengeId: resetDialog.challengeId,
+        verificationCode: verificationInput.trim(),
+      });
+      setResetDialog(null);
+      setVerificationInput("");
+      setSuccess(result?.message || "تمت إعادة ضبط البيانات بنجاح");
+      await load();
+    } catch (err) {
+      setError(err.message || "تعذر إعادة ضبط البيانات");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="sa-page" dir="rtl">
       <section className="sa-hero institutions">
@@ -179,6 +222,17 @@ export default function SuperAdminInstitutionsPage() {
 
       {error && <div className="sa-alert error">{error}</div>}
       {success && <div className="sa-alert success">{success}</div>}
+
+      <section className="sa-card sa-danger-zone">
+        <div>
+          <span className="sa-danger-label">منطقة العمليات الحساسة</span>
+          <h2>إعادة ضبط بيانات المنصة</h2>
+          <p>يحذف البيانات التشغيلية لجميع المؤسسات مع الاحتفاظ بالمؤسسات وحسابات مديريها. يتطلب التنفيذ إدخال رقم تحقق عشوائي.</p>
+        </div>
+        <button className="sa-btn danger" type="button" disabled={loading || rows.length === 0} onClick={() => openResetDialog(null)}>
+          إعادة ضبط جميع المؤسسات
+        </button>
+      </section>
 
       <div className="sa-forms-grid">
         <form className="sa-card sa-form" onSubmit={createInstitution}>
@@ -363,6 +417,9 @@ export default function SuperAdminInstitutionsPage() {
                   <button className="sa-btn ghost" type="button" disabled={loading} onClick={() => toggleStatus(item)}>
                     {item.isActive ? "إيقاف المؤسسة" : "تفعيل المؤسسة"}
                   </button>
+                  <button className="sa-btn danger-outline" type="button" disabled={loading} onClick={() => openResetDialog(item)}>
+                    إعادة ضبط البيانات
+                  </button>
                 </div>
               </article>
             ))}
@@ -397,6 +454,40 @@ export default function SuperAdminInstitutionsPage() {
             <label className="sa-check"><input type="checkbox" checked={editingAdmin.isActive} onChange={(e) => setEditingAdmin({ ...editingAdmin, isActive: e.target.checked })} /><span>الحساب فعال</span></label>
             {editingAdmin.password && <label className="sa-check"><input type="checkbox" checked={editingAdmin.mustChangePassword} onChange={(e) => setEditingAdmin({ ...editingAdmin, mustChangePassword: e.target.checked })} /><span>إلزام المدير بتغيير كلمة المرور عند أول دخول</span></label>}
             <button className="sa-btn primary full" disabled={loading}>{loading ? "جاري الحفظ..." : "حفظ بيانات المدير"}</button>
+          </form>
+        </div>
+      )}
+
+      {resetDialog && (
+        <div className="sa-modal-backdrop" role="presentation" onMouseDown={() => !loading && setResetDialog(null)}>
+          <form className="sa-modal sa-form sa-reset-modal" onSubmit={confirmDataReset} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="sa-modal-head">
+              <div><h2>تأكيد إعادة ضبط البيانات</h2><p>{resetDialog.institutionName}</p></div>
+              <button type="button" disabled={loading} onClick={() => setResetDialog(null)}>×</button>
+            </div>
+            <div className="sa-reset-warning">
+              <strong>تنبيه: لا يمكن التراجع عن هذه العملية</strong>
+              <span>سيتم حذف المستخدمين والطلاب والمقررات والاختبارات والمحاولات والتسجيلات، مع الاحتفاظ ببيانات المؤسسة وحسابات مديريها.</span>
+            </div>
+            <div className="sa-verification-code" aria-label="رقم التحقق">{resetDialog.verificationCode}</div>
+            <label className="sa-field">
+              <span>اكتب رقم التحقق الظاهر أعلاه</span>
+              <input
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength="6"
+                value={verificationInput}
+                onChange={(e) => setVerificationInput(e.target.value.replace(/\D/g, ""))}
+                placeholder="أدخل الرقم المكوّن من 6 أرقام"
+                autoFocus
+              />
+            </label>
+            <button
+              className="sa-btn danger full"
+              disabled={loading || verificationInput.trim() !== String(resetDialog.verificationCode)}
+            >
+              {loading ? "جاري إعادة الضبط..." : "تأكيد حذف البيانات وإعادة الضبط"}
+            </button>
           </form>
         </div>
       )}
