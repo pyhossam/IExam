@@ -1,0 +1,7 @@
+**/bin
+**/obj
+**/.vs
+**/*.db-shm
+**/*.db-wal
+src/QuizSystem.Api/publish
+

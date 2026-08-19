@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.aiexam.student_mobile_app",
+      "sha256_cert_fingerprints": [
+        "FF:60:D0:A7:8D:D9:87:C7:E1:E9:99:30:24:CB:1E:4D:85:5C:38:0C:73:49:00:95:B0:08:4C:75:55:CA:93:8A"
+      ]
+    }
+  }
+]

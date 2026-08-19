@@ -1,0 +1,73 @@
+.env
+.env.*
+!.env.example
+
+# Secrets and local credentials
+*.pfx
+*.p12
+*.key
+*.jks
+*.keystore
+appsettings.Production.json
+
+# Databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# .NET build output
+**/bin/
+**/obj/
+**/publish/
+**/.tmp/
+
+# Python virtual environments and caches
+**/.venv/
+**/.ven/
+**/venv/
+**/__pycache__/
+*.py[cod]
+
+# Local user/account data
+usersInfo.txt
+
+# Frontend dependencies and build output
+**/node_modules/
+**/dist/
+**/.vite/
+
+# User uploads and generated runtime content
+**/wwwroot/uploads/
+uploads/
+
+# Local reports, generated marketing/output artifacts, and temporary files
+tmp/
+output/
+outputs/
+report/
+
+# IDE and OS files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*-docker.log
+*-docker.err.log
+
+# Local backup and patch residue
+IExamSrc/
+*.bak
+*.bak_*
+*.bak-*
+*.bak.*
+*.backup
+*.orig
+_moved.txt

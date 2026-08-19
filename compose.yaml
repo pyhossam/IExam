@@ -1,0 +1,62 @@
+name: iexam
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Data Source=/data/quizsystem.db
+      Jwt__Key: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      App__FrontendBaseUrl: ${APP_FRONTEND_BASE_URL:-http://localhost:5190}
+      Smtp__Host: ${SMTP_HOST:-mailpit}
+      Smtp__Port: ${SMTP_PORT:-1025}
+      Smtp__EnableSsl: ${SMTP_ENABLE_SSL:-false}
+      Smtp__UserName: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-noreply@iexam.local}
+    volumes:
+      - iexam-data:/data
+      - iexam-uploads:/app/wwwroot/uploads
+      - iexam-keys:/root/.aspnet/DataProtection-Keys
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/quizsystem.db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    expose:
+      - "1025"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: /api
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "5190:80"
+
+volumes:
+  iexam-data:
+  iexam-uploads:
+  iexam-keys:

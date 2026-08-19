@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QuizSystem.Api/QuizSystem.Api.csproj" />
+    <Project Path="src/QuizSystem.Application/QuizSystem.Application.csproj" />
+    <Project Path="src/QuizSystem.Domain/QuizSystem.Domain.csproj" />
+    <Project Path="src/QuizSystem.Infrastructure/QuizSystem.Infrastructure.csproj" />
+  </Folder>
+</Solution>
