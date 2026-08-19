@@ -32,6 +32,7 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
         if (string.IsNullOrWhiteSpace(educationalContent))
             throw new InvalidOperationException("تعذر تلخيص ملف PDF لأنه لا يحتوي على نص قابل للقراءة.");
 
+        var contentLanguage = DetectContentLanguage(educationalContent);
         var apiKey = ResolveApiKey();
         var model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
         var baseUrl = _configuration["OpenAI:BaseUrl"] ?? "https://api.openai.com/v1/";
@@ -44,7 +45,7 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
                 new
                 {
                     role = "system",
-                    content = "أنت خبير تربوي. لخّص المحتوى التعليمي بدقة وبنفس لغته، وحافظ على الحقائق والمصطلحات والتعريفات والقواعد والأمثلة التي تصلح لبناء أسئلة قابلة للقياس. لا تضف معلومات غير موجودة في المصدر."
+                    content = $"أنت خبير تربوي. لغة المصدر المحددة آلياً هي {contentLanguage}. لخّص المحتوى حصرياً باللغة {contentLanguage}، ولا تترجمه إلى العربية أو أي لغة أخرى. حافظ على الحقائق والمصطلحات والتعريفات والقواعد والأمثلة التي تصلح لبناء أسئلة قابلة للقياس، ولا تضف معلومات غير موجودة في المصدر."
                 },
                 new
                 {
@@ -53,7 +54,8 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
                     سياق الاختبار:
                     {examContext ?? "غير محدد"}
 
-                    لخّص النص التالي في ملخص تعليمي منظم لا يتجاوز 6000 حرف. غطّ جميع الأفكار الرئيسية، والمفاهيم، والعلاقات، والأمثلة المهمة، والنقاط التي يمكن تقييمها باختبار:
+                    لغة الملخص المطلوبة إلزامياً: {contentLanguage}.
+                    لخّص النص التالي في ملخص تعليمي منظم لا يتجاوز 6000 حرف. غطّ جميع الأفكار الرئيسية، والمفاهيم، والعلاقات، والأمثلة المهمة، والنقاط التي يمكن تقييمها باختبار. لا تترجم المحتوى:
 
                     {educationalContent}
                     """
@@ -198,8 +200,13 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
 
     private static string BuildPrompt(string topic, int count, string? educationalContent, string? blueprintInstructions)
     {
+        var requiredLanguage = DetectContentLanguage(
+            string.IsNullOrWhiteSpace(educationalContent) ? topic : educationalContent);
         return $@"
 أنشئ {count} سؤال اختيار من متعدد عالي الجودة اعتمادًا حصريًا على وصف الاختبار والمحتوى التعليمي المرفق.
+
+لغة جميع الأسئلة والاختيارات والتفسيرات المطلوبة إلزامياً: {requiredLanguage}.
+لا تترجم المحتوى إلى العربية أو أي لغة أخرى، ولا تمزج بين اللغات. استخدم لغة ملف PDF كما هي.
 
 وصف وموضوع الاختبار:
 {topic}
@@ -220,6 +227,7 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
 - cognitiveLevel يجب أن يكون أحد: Remember, Understand, Apply, Analyze, Evaluate, Create
 - اجعل مستوى الأسئلة مناسبًا للتعليم المدرسي العام
 - استخدم اللغة الأساسية لوصف الاختبار والمحتوى التعليمي في جميع الحقول، واجعل correctAnswer قيمة A أو B أو C أو D
+- يجب أن تكون صياغة السؤال والاختيارات والتفسير باللغة {requiredLanguage} فقط، مع بقاء رموز CLO وBloom كما هي
 - لا تستخدم نصوصًا مثل Choice A أو AI Question أو Generated explanation
 
 أعد JSON فقط بهذا الشكل:
@@ -239,6 +247,25 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
   ]
 }}
 ";
+    }
+
+    private static string DetectContentLanguage(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return "لغة سياق الاختبار";
+
+        var arabicLetters = 0;
+        var latinLetters = 0;
+        foreach (var character in content)
+        {
+            if (character is >= '\u0600' and <= '\u06FF' or >= '\u0750' and <= '\u077F' or >= '\u08A0' and <= '\u08FF')
+                arabicLetters++;
+            else if (character is >= 'A' and <= 'Z' or >= 'a' and <= 'z')
+                latinLetters++;
+        }
+
+        if (arabicLetters > latinLetters) return "العربية";
+        if (latinLetters > arabicLetters) return "الإنجليزية";
+        return "لغة النص الأصلي";
     }
 
     private static string ExtractMessageContent(string raw)

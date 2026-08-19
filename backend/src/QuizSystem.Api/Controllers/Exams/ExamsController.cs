@@ -115,7 +115,13 @@ public ExamsController(IExamManagementService examManagementService, IAiQuestion
         var clos = exam.SubjectId.HasValue
             ? await _db.CourseLearningOutcomes.AsNoTracking().Where(x => x.SubjectId == exam.SubjectId && x.InstitutionId == exam.InstitutionId && x.IsActive).ToListAsync(cancellationToken)
             : [];
-        var topic = $"{exam.Title}\n{exam.Topic}\n{exam.Description}";
+        var subject = exam.SubjectId.HasValue
+            ? await _db.Subjects.AsNoTracking()
+                .Where(x => x.Id == exam.SubjectId.Value && x.InstitutionId == exam.InstitutionId)
+                .Select(x => new { x.Name, x.Code })
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+        var topic = $"المقرر: {subject?.Name ?? "غير محدد"} ({subject?.Code ?? "بدون كود"})\nعنوان الاختبار: {exam.Title}\nموضوع الاختبار: {exam.Topic}\nوصف الاختبار: {exam.Description}";
         string? summarizedContent = null;
         if (file is not null)
         {
