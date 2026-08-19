@@ -110,8 +110,15 @@ export default function ExamsPage() {
   }
 
   function closeModal() {
+    if (saving) return;
     setIsModalOpen(false);
     resetForm();
+  }
+
+  function preventAccidentalSubmit(e) {
+    if (e.key !== "Enter") return;
+    const tagName = e.target?.tagName?.toLowerCase();
+    if (tagName !== "textarea" && tagName !== "button") e.preventDefault();
   }
 
   async function handleCreate(e) {
@@ -284,7 +291,7 @@ export default function ExamsPage() {
       </SectionCard>
 
       {isModalOpen && (
-        <div className="entity-modal-backdrop" onClick={closeModal}>
+        <div className="entity-modal-backdrop">
           <div className="entity-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="entity-modal-head">
               <div>
@@ -292,7 +299,7 @@ export default function ExamsPage() {
                 <p>اختر النمط المناسب ثم أدخل بيانات الاختبار</p>
               </div>
 
-              <button className="ghost-btn slim" type="button" onClick={closeModal}>
+              <button className="ghost-btn slim" type="button" onClick={closeModal} disabled={saving}>
                 إغلاق
               </button>
             </div>
@@ -314,7 +321,7 @@ export default function ExamsPage() {
               </button>
             </div>
 
-            <form className="entity-form-grid" onSubmit={handleCreate}>
+            <form className="entity-form-grid" onSubmit={handleCreate} onKeyDown={preventAccidentalSubmit}>
               <div className="entity-form-field">
                 <label>المقرر</label>
                 <select required value={form.subjectId} onChange={(e) => setForm({ ...form, subjectId: e.target.value })}>
@@ -418,7 +425,7 @@ export default function ExamsPage() {
                 <button className="primary-btn" type="submit" disabled={saving}>
                   {saving ? "جاري الإنشاء..." : "إنشاء الاختبار"}
                 </button>
-                <button className="ghost-btn" type="button" onClick={closeModal}>
+                <button className="ghost-btn" type="button" onClick={closeModal} disabled={saving}>
                   إلغاء
                 </button>
               </div>
