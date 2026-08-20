@@ -2,7 +2,10 @@ using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
+using UglyToad.PdfPig;
 using QuizSystem.Api.Infrastructure.Tenant;
+using QuizSystem.Application.Contracts.Exams;
 using QuizSystem.Domain.Entities;
 using QuizSystem.Domain.Enums;
 using QuizSystem.Infrastructure.Persistence;
@@ -12,18 +15,19 @@ namespace QuizSystem.Api.Controllers.Courses;
 [ApiController]
 [Route("api/courses")]
 [Authorize(Policy = "AdminOrSupervisor")]
-public sealed class CourseOutcomesController(AppDbContext db) : ControllerBase
+public sealed class CourseOutcomesController(AppDbContext db, IAiQuestionGenerator aiGenerator) : ControllerBase
 {
     [HttpGet("assigned")]
     public async Task<IActionResult> Assigned(CancellationToken ct)
     {
         var tenant = await TenantResolver.RequireCurrentInstitutionIdAsync(db, User, ct);
         var query = db.Subjects.AsNoTracking().Where(x => x.InstitutionId == tenant && x.IsActive);
-        if (User.IsInRole("CourseSupervisor"))
+        if (User.IsInRole("CourseSupervisor") || User.IsInRole("Teacher"))
         {
             var userId = TenantResolver.GetCurrentUserId(User) ?? throw new UnauthorizedAccessException();
             var teacherId = await db.Users.Where(x => x.Id == userId && x.InstitutionId == tenant).Select(x => x.TeacherProfileId).FirstOrDefaultAsync(ct);
-            query = query.Where(x => teacherId.HasValue && db.TeacherSubjects.Any(t => t.InstitutionId == tenant && t.SubjectId == x.Id && t.TeacherProfileId == teacherId && t.IsActive));
+            if (User.IsInRole("Teacher")) query = query.Where(x => teacherId.HasValue && db.ClassSections.Any(s => s.InstitutionId == tenant && s.SubjectId == x.Id && s.TeacherProfileId == teacherId && s.IsActive));
+            else query = query.Where(x => teacherId.HasValue && db.TeacherSubjects.Any(t => t.InstitutionId == tenant && t.SubjectId == x.Id && t.TeacherProfileId == teacherId && t.IsActive));
         }
         return Ok(await query.OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, x.Code }).ToListAsync(ct));
     }
@@ -109,6 +113,52 @@ public sealed class CourseOutcomesController(AppDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct); return Ok(new { added, updated });
     }
 
+    [HttpPost("{subjectId:guid}/clos/ai-preview")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<IActionResult> GenerateAiPreview(Guid subjectId, [FromForm] int count, [FromForm] IFormFile file, CancellationToken ct)
+    {
+        await RequireAccess(subjectId, true, ct);
+        if (count is < 1 or > 15) throw new InvalidOperationException("عدد مخرجات التعلم يجب أن يكون بين 1 و15.");
+        if (file is null || file.Length == 0) throw new InvalidOperationException("اختر ملف PDF الخاص بالمقرر.");
+        if (!Path.GetExtension(file.FileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("يجب أن يكون محتوى المقرر ملف PDF.");
+        var subject = await db.Subjects.AsNoTracking().Where(x => x.Id == subjectId).Select(x => new { x.Name, x.Code }).SingleAsync(ct);
+        var extracted = await ExtractPdfText(file, ct);
+        var summary = await aiGenerator.SummarizeEducationalContentAsync(extracted, $"المقرر: {subject.Name} ({subject.Code})", ct);
+        var clos = await aiGenerator.GenerateClosAsync(subject.Name, summary, count, ct);
+        return Ok(new { fileName = file.FileName, summary, clos });
+    }
+
+    [HttpPost("{subjectId:guid}/clos/ai-approve")]
+    public async Task<IActionResult> ApproveAiPreview(Guid subjectId, [FromBody] ApproveGeneratedClosRequest request, CancellationToken ct)
+    {
+        var tenant = await RequireAccess(subjectId, true, ct);
+        if (request.Clos.Count == 0) throw new InvalidOperationException("اختر مخرج تعلم واحدًا على الأقل للاعتماد.");
+        if (request.Clos.Count > 15) throw new InvalidOperationException("لا يمكن اعتماد أكثر من 15 مخرجًا دفعة واحدة.");
+        var added = 0; var updated = 0;
+        foreach (var item in request.Clos)
+        {
+            Validate(item);
+            var code = item.Code.Trim().ToUpperInvariant();
+            var entity = await db.CourseLearningOutcomes.FirstOrDefaultAsync(x => x.InstitutionId == tenant && x.SubjectId == subjectId && x.Code == code, ct);
+            if (entity is null) { entity = new CourseLearningOutcome { InstitutionId = tenant, SubjectId = subjectId, Code = code }; db.Add(entity); added++; } else updated++;
+            entity.Description = item.Description.Trim(); entity.Domain = ParseDomain(item.Domain); entity.CognitiveLevel = ParseLevel(item.CognitiveLevel);
+            entity.TargetPercentage = item.TargetPercentage; entity.DisplayOrder = item.DisplayOrder; entity.IsActive = true;
+        }
+        await db.SaveChangesAsync(ct);
+        return Ok(new { added, updated, rejected = request.RejectedCount });
+    }
+
+    private static async Task<string> ExtractPdfText(IFormFile file, CancellationToken ct)
+    {
+        await using var stream = file.OpenReadStream();
+        using var document = PdfDocument.Open(stream);
+        var text = new StringBuilder();
+        foreach (var page in document.GetPages()) { ct.ThrowIfCancellationRequested(); text.AppendLine(page.Text); if (text.Length >= 40_000) break; }
+        var result = text.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(result)) throw new InvalidOperationException("تعذر قراءة نص ملف PDF. استخدم ملفًا يحتوي على نص قابل للبحث وليس صورًا ممسوحة فقط.");
+        return result[..Math.Min(result.Length, 40_000)];
+    }
+
     [HttpPut("{subjectId:guid}/supervisors")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> AssignSupervisors(Guid subjectId, [FromBody] AssignSupervisorsRequest request, CancellationToken ct)
@@ -140,25 +190,50 @@ public sealed class CourseOutcomesController(AppDbContext db) : ControllerBase
     public async Task<IActionResult> Report(Guid subjectId, CancellationToken ct)
     {
         var tenant = await RequireAccess(subjectId, false, ct);
+        var currentUserId = TenantResolver.GetCurrentUserId(User);
+        var teacherOnly = User.IsInRole("Teacher");
         var rows = await db.CourseLearningOutcomes.Where(c => c.InstitutionId == tenant && c.SubjectId == subjectId).Select(c => new
         {
             c.Id, c.Code, c.Description, c.TargetPercentage,
-            Questions = db.Questions.Count(q => q.CourseLearningOutcomeId == c.Id),
-            Answered = db.AttemptAnswers.Count(a => a.ExamQuestion.CourseLearningOutcomeId == c.Id),
-            Correct = db.AttemptAnswers.Count(a => a.ExamQuestion.CourseLearningOutcomeId == c.Id && a.IsCorrect)
+            Questions = db.Questions.Count(q => q.CourseLearningOutcomeId == c.Id && (!teacherOnly || q.Exam.CreatedByUserId == currentUserId)),
+            Answered = db.AttemptAnswers.Count(a => a.ExamQuestion.CourseLearningOutcomeId == c.Id && (!teacherOnly || a.ExamQuestion.Exam.CreatedByUserId == currentUserId)),
+            Correct = db.AttemptAnswers.Count(a => a.ExamQuestion.CourseLearningOutcomeId == c.Id && a.IsCorrect && (!teacherOnly || a.ExamQuestion.Exam.CreatedByUserId == currentUserId))
         }).ToListAsync(ct);
         return Ok(rows.Select(x => new { x.Id, x.Code, x.Description, x.TargetPercentage, x.Questions, x.Answered, x.Correct, AttainmentPercentage = x.Answered == 0 ? 0 : Math.Round(x.Correct * 100m / x.Answered, 2), Achieved = x.Answered > 0 && x.Correct * 100m / x.Answered >= x.TargetPercentage }));
+    }
+
+    [HttpGet("{subjectId:guid}/bloom-report")]
+    public async Task<IActionResult> BloomReport(Guid subjectId, CancellationToken ct)
+    {
+        var tenant = await RequireAccess(subjectId, false, ct);
+        var currentUserId = TenantResolver.GetCurrentUserId(User); var teacherOnly = User.IsInRole("Teacher");
+        var questions = await db.Questions.AsNoTracking()
+            .Where(q => q.Exam.InstitutionId == tenant && q.Exam.SubjectId == subjectId && (!teacherOnly || q.Exam.CreatedByUserId == currentUserId))
+            .Select(q => new { q.Id, q.CognitiveLevel })
+            .ToListAsync(ct);
+        var ids = questions.Select(x => x.Id).ToList();
+        var answers = await db.AttemptAnswers.AsNoTracking().Where(a => ids.Contains(a.ExamQuestionId)).Select(a => new { a.ExamQuestionId, a.IsCorrect }).ToListAsync(ct);
+        var rows = questions.GroupBy(q => q.CognitiveLevel).Select(g =>
+        {
+            var questionIds = g.Select(q => q.Id).ToHashSet(); var measured = answers.Where(a => questionIds.Contains(a.ExamQuestionId)).ToList();
+            return new { CognitiveLevel = g.Key.ToString(), Questions = g.Count(), Answered = measured.Count, Correct = measured.Count(a => a.IsCorrect), AttainmentPercentage = measured.Count == 0 ? 0 : Math.Round(measured.Count(a => a.IsCorrect) * 100m / measured.Count, 2) };
+        });
+        return Ok(rows);
     }
 
     private async Task<Guid> RequireAccess(Guid subjectId, bool write, CancellationToken ct)
     {
         var tenant = await TenantResolver.RequireCurrentInstitutionIdAsync(db, User, ct);
         if (!await db.Subjects.AnyAsync(x => x.Id == subjectId && x.InstitutionId == tenant, ct)) throw new KeyNotFoundException("المقرر غير موجود في المؤسسة الحالية");
-        if (User.IsInRole("CourseSupervisor"))
+        if (User.IsInRole("CourseSupervisor") || User.IsInRole("Teacher"))
         {
             var userId = TenantResolver.GetCurrentUserId(User) ?? throw new UnauthorizedAccessException();
             var teacherId = await db.Users.Where(x => x.Id == userId && x.InstitutionId == tenant).Select(x => x.TeacherProfileId).FirstOrDefaultAsync(ct);
-            if (!teacherId.HasValue || !await db.TeacherSubjects.AnyAsync(x => x.InstitutionId == tenant && x.SubjectId == subjectId && x.TeacherProfileId == teacherId && x.IsActive, ct)) throw new UnauthorizedAccessException("ليس لديك تكليف نشط للإشراف على هذا المقرر");
+            var allowed = teacherId.HasValue && (User.IsInRole("Teacher")
+                ? await db.ClassSections.AnyAsync(x => x.InstitutionId == tenant && x.SubjectId == subjectId && x.TeacherProfileId == teacherId && x.IsActive, ct)
+                : await db.TeacherSubjects.AnyAsync(x => x.InstitutionId == tenant && x.SubjectId == subjectId && x.TeacherProfileId == teacherId && x.IsActive, ct));
+            if (!allowed) throw new UnauthorizedAccessException("ليس لديك تكليف نشط على هذا المقرر");
+            if (write && User.IsInRole("Teacher")) throw new UnauthorizedAccessException("إدارة مخرجات CLO متاحة لمشرف المقرر فقط.");
         }
         return tenant;
     }
@@ -170,3 +245,4 @@ public sealed class CourseOutcomesController(AppDbContext db) : ControllerBase
 
 public sealed record UpsertCloRequest(string Code, string Description, string Domain, string CognitiveLevel, decimal TargetPercentage, int DisplayOrder, bool IsActive = true);
 public sealed record AssignSupervisorsRequest(List<Guid> TeacherProfileIds);
+public sealed record ApproveGeneratedClosRequest(List<UpsertCloRequest> Clos, int RejectedCount = 0);

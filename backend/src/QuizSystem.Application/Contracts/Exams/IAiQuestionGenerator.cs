@@ -14,4 +14,18 @@ public interface IAiQuestionGenerator
         string? educationalContent = null,
         string? blueprintInstructions = null,
         CancellationToken cancellationToken = default);
+
+    Task<List<GeneratedCloDto>> GenerateClosAsync(
+        string courseName,
+        string summarizedEducationalContent,
+        int count,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record GeneratedCloDto(
+    string Code,
+    string Description,
+    string Domain,
+    string CognitiveLevel,
+    decimal TargetPercentage,
+    int DisplayOrder);

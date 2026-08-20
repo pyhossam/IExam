@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using QuizSystem.Api.Infrastructure.Tenant;
 using QuizSystem.Application.Contracts.SchoolManagement;
 using QuizSystem.Application.DTOs.SchoolManagement;
@@ -44,4 +45,18 @@ public class SchoolManagementController : ControllerBase
     [HttpGet("class-sections/{id:guid}/students")] public async Task<IActionResult> GetSectionStudents(Guid id, CancellationToken ct) => Ok(await _service.GetSectionStudentsAsync(await InstitutionId(ct), id, ct));
     [HttpPost("class-sections/{id:guid}/students")] public async Task<IActionResult> AssignStudentsToSection(Guid id, [FromBody] AssignSectionStudentsRequest request, CancellationToken ct) { await _service.AssignStudentsToSectionAsync(await InstitutionId(ct), id, request, ct); return NoContent(); }
     [HttpDelete("class-sections/{id:guid}/students/{studentProfileId:guid}")] public async Task<IActionResult> RemoveStudentFromSection(Guid id, Guid studentProfileId, CancellationToken ct) { await _service.RemoveStudentFromSectionAsync(await InstitutionId(ct), id, studentProfileId, ct); return NoContent(); }
+    [HttpPost("class-sections/{id:guid}/students/{studentProfileId:guid}/transfer/{targetSectionId:guid}")]
+    public async Task<IActionResult> TransferStudent(Guid id, Guid studentProfileId, Guid targetSectionId, CancellationToken ct)
+    {
+        var institutionId = await InstitutionId(ct);
+        if (id == targetSectionId) throw new InvalidOperationException("اختر شعبة أخرى لنقل الطالب.");
+        var source = await _db.SectionStudents.FirstOrDefaultAsync(x => x.InstitutionId == institutionId && x.ClassSectionId == id && x.StudentProfileId == studentProfileId && x.IsActive, ct) ?? throw new KeyNotFoundException("الطالب غير مسجل في الشعبة المصدر.");
+        if (!await _db.ClassSections.AnyAsync(x => x.Id == targetSectionId && x.InstitutionId == institutionId && x.IsActive, ct)) throw new KeyNotFoundException("الشعبة الهدف غير موجودة أو غير فعالة.");
+        var target = await _db.SectionStudents.FirstOrDefaultAsync(x => x.InstitutionId == institutionId && x.ClassSectionId == targetSectionId && x.StudentProfileId == studentProfileId, ct);
+        source.IsActive = false;
+        if (target is null) _db.SectionStudents.Add(new QuizSystem.Domain.Entities.SectionStudent { InstitutionId = institutionId, ClassSectionId = targetSectionId, StudentProfileId = studentProfileId, AssignedAtUtc = DateTime.UtcNow, IsActive = true });
+        else { target.IsActive = true; target.AssignedAtUtc = DateTime.UtcNow; }
+        await _db.SaveChangesAsync(ct);
+        return Ok(new { studentProfileId, fromSectionId = id, targetSectionId });
+    }
 }

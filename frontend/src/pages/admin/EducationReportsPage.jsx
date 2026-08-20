@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getAssignedCourses, getCourseCloReport, getReadableErrorMessage } from "../../services/api";
+import { getAssignedCourses, getCourseBloomReport, getCourseCloReport, getReadableErrorMessage } from "../../services/api";
 import "./educationReports.css";
 
 const percent = (value) => Math.max(0, Math.min(100, Number(value || 0)));
@@ -21,6 +21,7 @@ export default function EducationReportsPage() {
   const [courses, setCourses] = useState([]);
   const [courseId, setCourseId] = useState("");
   const [rows, setRows] = useState([]);
+  const [bloomRows, setBloomRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -36,7 +37,7 @@ export default function EducationReportsPage() {
     if (!courseId) return setRows([]);
     setLoading(true);
     setError("");
-    getCourseCloReport(courseId).then((data) => setRows(Array.isArray(data) ? data : []))
+    Promise.all([getCourseCloReport(courseId), getCourseBloomReport(courseId)]).then(([clo,bloom]) => { setRows(Array.isArray(clo) ? clo : []); setBloomRows(Array.isArray(bloom) ? bloom : []); })
       .catch((err) => setError(getReadableErrorMessage(err))).finally(() => setLoading(false));
   }, [courseId]);
 
@@ -67,6 +68,11 @@ export default function EducationReportsPage() {
       <section className="reports-toolbar">
         <div><label htmlFor="report-course">المقرر</label><select id="report-course" value={courseId} onChange={(e) => setCourseId(e.target.value)}><option value="">اختر المقرر</option>{courses.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.code})</option>)}</select></div>
         <div className="reports-actions"><button type="button" onClick={() => downloadCsv(course, rows)} disabled={!rows.length}>تصدير Excel / CSV</button><button className="secondary" type="button" onClick={() => window.print()} disabled={!rows.length}>طباعة / حفظ PDF</button></div>
+      </section>
+
+      <section className="reports-panel">
+        <div className="reports-panel-head"><div><h2>تحليل النتائج حسب مستويات Bloom</h2><p>يوضح عدد الأسئلة والإجابات ونسبة الإتقان في كل مستوى معرفي.</p></div></div>
+        {!bloomRows.length ? <div className="reports-empty">لا توجد إجابات مصنفة حسب Bloom حتى الآن.</div> : <div className="table-wrap"><table><thead><tr><th>المستوى</th><th>عدد الأسئلة</th><th>الإجابات</th><th>الصحيحة</th><th>نسبة الإتقان</th></tr></thead><tbody>{bloomRows.map(row=><tr key={row.cognitiveLevel}><td>{row.cognitiveLevel}</td><td>{row.questions}</td><td>{row.answered}</td><td>{row.correct}</td><td>{row.attainmentPercentage}%</td></tr>)}</tbody></table></div>}
       </section>
 
       {error && <div className="alert error">{error}</div>}

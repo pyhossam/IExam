@@ -42,5 +42,6 @@ export const schoolApi = {
     apiJson(`${BASE}/class-sections/${sectionId}/students`, "POST", { studentProfileIds, replaceExisting }),
   removeSectionStudent: (sectionId, studentProfileId) =>
     apiRequest(`${BASE}/class-sections/${sectionId}/students/${studentProfileId}`, { method: "DELETE" }),
+  transferSectionStudent: (sectionId, studentProfileId, targetSectionId) =>
+    apiRequest(`${BASE}/class-sections/${sectionId}/students/${studentProfileId}/transfer/${targetSectionId}`, { method: "POST" }),
 };
-

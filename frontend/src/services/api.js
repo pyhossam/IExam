@@ -107,7 +107,7 @@ export function normalizeRole(role) {
 
 const permissionGroups = {
   AdminOnly: ["Admin", "InstitutionAdmin", "SchoolAdmin"],
-  AdminOrSupervisor: ["Admin", "InstitutionAdmin", "SchoolAdmin", "ExamSupervisor", "CourseSupervisor"],
+  AdminOrSupervisor: ["Admin", "InstitutionAdmin", "SchoolAdmin", "ExamSupervisor", "CourseSupervisor", "Teacher"],
   SuperOrInstitutionAdmin: ["SuperAdmin", "Admin", "InstitutionAdmin", "SchoolAdmin"],
 };
 
@@ -1004,7 +1004,13 @@ export const setCourseSupervisors = (subjectId, teacherProfileIds) => apiJson(`/
 export const createCourseClo = (subjectId, payload) => apiJson(`/courses/${subjectId}/clos`, "POST", payload);
 export const deleteCourseClo = (subjectId, id) => apiJson(`/courses/${subjectId}/clos/${id}`, "DELETE");
 export const importCourseClos = (subjectId, file) => apiUpload(`/courses/${subjectId}/clos/import`, file);
+export async function generateCourseClosFromPdf(subjectId, file, count = 6) {
+  const form = new FormData(); form.append("file", file); form.append("count", String(count));
+  return apiRequest(`/courses/${subjectId}/clos/ai-preview`, { method: "POST", body: form });
+}
+export const approveGeneratedCourseClos = (subjectId, clos, rejectedCount = 0) => apiJson(`/courses/${subjectId}/clos/ai-approve`, "POST", { clos, rejectedCount });
 export const getCourseCloReport = (subjectId) => apiRequest(`/courses/${subjectId}/clo-report`);
+export const getCourseBloomReport = (subjectId) => apiRequest(`/courses/${subjectId}/bloom-report`);
 export const createEducationTeacher = schoolApi.createTeacher;
 export const updateEducationTeacher = schoolApi.updateTeacher;
 export const deleteEducationTeacher = schoolApi.deleteTeacher;

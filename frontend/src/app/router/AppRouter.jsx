@@ -16,6 +16,8 @@ import SchoolManagementPage from "../../pages/admin/school/SchoolManagementPage"
 import StudentSignupPage from "../../pages/StudentSignupPage";
 import VerifyStudentRegistrationPage from "../../pages/VerifyStudentRegistrationPage";
 import StudentAccountRequestsPage from "../../pages/admin/StudentAccountRequestsPage";
+import CourseOutcomesPage from "../../pages/admin/CourseOutcomesPage";
+import EducationReportsPage from "../../pages/admin/EducationReportsPage";
 
 function ProtectedRoute({ children, roles = [] }) {
   if (!isAuthenticated()) return <Navigate to="/login" replace />;
@@ -48,6 +50,8 @@ export default function AppRouter() {
           <Route path="users" element={<UsersPage />} />
           <Route path="school" element={<SchoolManagementPage />} />
           <Route path="student-account-requests" element={<StudentAccountRequestsPage />} />
+          <Route path="course-outcomes" element={<CourseOutcomesPage />} />
+          <Route path="education/reports" element={<EducationReportsPage />} />
         </Route>
 
         <Route

@@ -249,6 +249,65 @@ public class OpenAiQuestionGenerator : IAiQuestionGenerator
 ";
     }
 
+    public async Task<List<GeneratedCloDto>> GenerateClosAsync(
+        string courseName,
+        string summarizedEducationalContent,
+        int count,
+        CancellationToken cancellationToken = default)
+    {
+        if (count is < 1 or > 15) throw new InvalidOperationException("عدد مخرجات التعلم يجب أن يكون بين 1 و15.");
+        if (string.IsNullOrWhiteSpace(summarizedEducationalContent)) throw new InvalidOperationException("ملخص محتوى المقرر مطلوب.");
+
+        var payload = new
+        {
+            model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini",
+            temperature = 0.2,
+            response_format = new { type = "json_object" },
+            messages = new object[]
+            {
+                new { role = "system", content = "You are an educational assessment expert. Return valid JSON only. Create measurable course learning outcomes in the same language as the supplied course content." },
+                new { role = "user", content = $$"""
+Course: {{courseName}}
+Create exactly {{count}} measurable Course Learning Outcomes from the following verified course summary.
+Use the same language as the summary. Every outcome must start with an observable action verb and be assessable.
+domain must be one of: Knowledge, Skills, Values.
+cognitiveLevel must be one of: Remember, Understand, Apply, Analyze, Evaluate, Create.
+targetPercentage must be between 60 and 90.
+Return: {"clos":[{"code":"CLO1","description":"...","domain":"Knowledge","cognitiveLevel":"Understand","targetPercentage":70,"displayOrder":1}]}
+
+Course summary:
+{{summarizedEducationalContent}}
+""" }
+            }
+        };
+        var baseUrl = _configuration["OpenAI:BaseUrl"] ?? "https://api.openai.com/v1/";
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/"), "chat/completions"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ResolveApiKey());
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("OpenAI CLO generation failed: {StatusCode} - {Body}", response.StatusCode, raw);
+            throw new InvalidOperationException("تعذر توليد مخرجات التعلم بواسطة الذكاء الاصطناعي.");
+        }
+        using var json = JsonDocument.Parse(ExtractMessageContent(raw));
+        if (!json.RootElement.TryGetProperty("clos", out var items) || items.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("لم يُرجع الذكاء الاصطناعي مخرجات تعلم صالحة للمراجعة.");
+        var result = new List<GeneratedCloDto>();
+        foreach (var item in items.EnumerateArray().Take(count))
+        {
+            var code = item.GetProperty("code").GetString()?.Trim().ToUpperInvariant() ?? $"CLO{result.Count + 1}";
+            var description = item.GetProperty("description").GetString()?.Trim() ?? "";
+            var domain = item.GetProperty("domain").GetString() ?? "Knowledge";
+            var level = item.GetProperty("cognitiveLevel").GetString() ?? "Understand";
+            var target = item.TryGetProperty("targetPercentage", out var targetNode) && targetNode.TryGetDecimal(out var value) ? value : 70;
+            if (description.Length >= 10) result.Add(new(code, description, domain, level, Math.Clamp(target, 0, 100), result.Count + 1));
+        }
+        if (result.Count == 0) throw new InvalidOperationException("لم يتم إنشاء مخرجات قابلة للقياس من الملف.");
+        return result;
+    }
+
     private static string DetectContentLanguage(string? content)
     {
         if (string.IsNullOrWhiteSpace(content)) return "لغة سياق الاختبار";

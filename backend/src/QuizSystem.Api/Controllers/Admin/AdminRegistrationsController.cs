@@ -72,6 +72,7 @@ public class AdminRegistrationsController : ControllerBase
         var institutionId = await TenantResolver.RequireCurrentInstitutionIdAsync(_db, User, cancellationToken);
         await RequireExamAccess(institutionId, examId, cancellationToken);
         if (!await _db.Students.AnyAsync(x => x.Id == request.StudentId && x.InstitutionId == institutionId && x.IsActive, cancellationToken)) throw new KeyNotFoundException("الطالب غير موجود في المؤسسة الحالية");
+        if (User.IsInRole("Teacher") && !await IsTeacherStudent(institutionId, request.StudentId, cancellationToken)) throw new UnauthorizedAccessException("يمكن للمعلم تسجيل طلاب شعبه فقط.");
         var existing = await _db.Registrations.FirstOrDefaultAsync(x => x.InstitutionId == institutionId && x.ExamId == examId && x.StudentProfileId == request.StudentId, cancellationToken);
         if (existing is not null) { existing.IsActive = true; await _db.SaveChangesAsync(cancellationToken); return Ok(new { id = existing.Id }); }
         var row = new ExamRegistration { InstitutionId = institutionId, ExamId = examId, StudentProfileId = request.StudentId, IsActive = true, AssignedByUserId = TenantResolver.GetCurrentUserId(User) ?? throw new UnauthorizedAccessException() };
@@ -87,6 +88,7 @@ public class AdminRegistrationsController : ControllerBase
         if (!subjectId.HasValue) return Ok(Array.Empty<object>());
         var sections = await _db.ClassSections.AsNoTracking()
             .Where(x => x.InstitutionId == institutionId && x.SubjectId == subjectId && x.IsActive)
+            .Where(x => !User.IsInRole("Teacher") || x.TeacherProfileId == CurrentTeacherId(institutionId))
             .OrderBy(x => x.Name)
             .Select(x => new { x.Id, x.Name, x.AcademicYear, x.Term, activeStudentsCount = x.SectionStudents.Count(s => s.IsActive && s.StudentProfile.IsActive) })
             .ToListAsync(cancellationToken);
@@ -101,6 +103,7 @@ public class AdminRegistrationsController : ControllerBase
         var examSubjectId = await _db.Exams.Where(x => x.Id == examId && x.InstitutionId == institutionId).Select(x => x.SubjectId).SingleAsync(cancellationToken);
         var section = await _db.ClassSections.AsNoTracking().FirstOrDefaultAsync(x => x.Id == sectionId && x.InstitutionId == institutionId && x.IsActive, cancellationToken);
         if (section is null) throw new KeyNotFoundException("الشعبة غير موجودة أو غير فعالة.");
+        if (User.IsInRole("Teacher") && section.TeacherProfileId != await GetTeacherId(institutionId, cancellationToken)) throw new UnauthorizedAccessException("يمكن للمعلم تسجيل الطلاب من شعبه فقط.");
         if (!examSubjectId.HasValue || section.SubjectId != examSubjectId.Value) throw new InvalidOperationException("يمكن اختيار شعب المقرر التابع للاختبار فقط.");
         var studentIds = await _db.SectionStudents.Where(x => x.InstitutionId == institutionId && x.ClassSectionId == sectionId && x.IsActive && x.StudentProfile.IsActive).Select(x => x.StudentProfileId).Distinct().ToListAsync(cancellationToken);
         var existing = await _db.Registrations.Where(x => x.InstitutionId == institutionId && x.ExamId == examId && studentIds.Contains(x.StudentProfileId)).ToListAsync(cancellationToken);
@@ -207,11 +210,12 @@ public class AdminRegistrationsController : ControllerBase
     private async Task<List<Guid>> AllowedExamIds(Guid institutionId, CancellationToken ct)
     {
         var exams = _db.Exams.Where(x => x.InstitutionId == institutionId);
-        if (User.IsInRole("CourseSupervisor"))
+        if (User.IsInRole("CourseSupervisor") || User.IsInRole("Teacher"))
         {
             var userId = TenantResolver.GetCurrentUserId(User) ?? throw new UnauthorizedAccessException();
             var teacherId = await _db.Users.Where(x => x.Id == userId && x.InstitutionId == institutionId).Select(x => x.TeacherProfileId).FirstOrDefaultAsync(ct);
-            exams = exams.Where(x => x.SubjectId.HasValue && teacherId.HasValue && _db.TeacherSubjects.Any(t => t.InstitutionId == institutionId && t.SubjectId == x.SubjectId && t.TeacherProfileId == teacherId && t.IsActive));
+            if (User.IsInRole("Teacher")) exams = exams.Where(x => x.SubjectId.HasValue && teacherId.HasValue && _db.ClassSections.Any(s => s.InstitutionId == institutionId && s.SubjectId == x.SubjectId && s.TeacherProfileId == teacherId && s.IsActive));
+            else exams = exams.Where(x => x.SubjectId.HasValue && teacherId.HasValue && _db.TeacherSubjects.Any(t => t.InstitutionId == institutionId && t.SubjectId == x.SubjectId && t.TeacherProfileId == teacherId && t.IsActive));
         }
         return await exams.Select(x => x.Id).ToListAsync(ct);
     }
@@ -219,6 +223,14 @@ public class AdminRegistrationsController : ControllerBase
     private async Task RequireExamAccess(Guid institutionId, Guid examId, CancellationToken ct)
     {
         if (!(await AllowedExamIds(institutionId, ct)).Contains(examId)) throw new UnauthorizedAccessException("ليس لديك صلاحية لإدارة تسجيلات هذا الاختبار");
+    }
+
+    private Guid? CurrentTeacherId(Guid institutionId) => _db.Users.Where(x => x.Id == TenantResolver.GetCurrentUserId(User) && x.InstitutionId == institutionId).Select(x => x.TeacherProfileId).FirstOrDefault();
+    private Task<Guid?> GetTeacherId(Guid institutionId, CancellationToken ct) => _db.Users.Where(x => x.Id == TenantResolver.GetCurrentUserId(User) && x.InstitutionId == institutionId).Select(x => x.TeacherProfileId).FirstOrDefaultAsync(ct);
+    private async Task<bool> IsTeacherStudent(Guid institutionId, Guid studentId, CancellationToken ct)
+    {
+        var teacherId = await GetTeacherId(institutionId, ct);
+        return teacherId.HasValue && await _db.SectionStudents.AnyAsync(x => x.InstitutionId == institutionId && x.StudentProfileId == studentId && x.IsActive && x.ClassSection.IsActive && x.ClassSection.TeacherProfileId == teacherId, ct);
     }
 }
 

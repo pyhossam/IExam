@@ -47,7 +47,7 @@ public ExamsController(IExamManagementService examManagementService, IAiQuestion
 
     [HttpGet]
     public async Task<IActionResult> GetExams(CancellationToken cancellationToken)
-    { var rows = await _examManagementService.GetExamsAsync(await TenantResolver.GetCurrentInstitutionIdAsync(_db, User, cancellationToken), TenantResolver.IsSuperAdmin(User), cancellationToken); if (User.IsInRole("CourseSupervisor")) { var ids = await AssignedSubjectIds(cancellationToken); rows = rows.Where(x => x.SubjectId.HasValue && ids.Contains(x.SubjectId.Value)).ToList(); } return Ok(rows); }
+    { var rows = await _examManagementService.GetExamsAsync(await TenantResolver.GetCurrentInstitutionIdAsync(_db, User, cancellationToken), TenantResolver.IsSuperAdmin(User), cancellationToken); if (User.IsInRole("CourseSupervisor") || User.IsInRole("Teacher")) { var ids = await AssignedSubjectIds(cancellationToken); rows = rows.Where(x => x.SubjectId.HasValue && ids.Contains(x.SubjectId.Value)).ToList(); } return Ok(rows); }
 
     [HttpGet("{examId:guid}")]
     public async Task<IActionResult> GetExamDetails(Guid examId, CancellationToken cancellationToken)
@@ -193,13 +193,15 @@ public ExamsController(IExamManagementService examManagementService, IAiQuestion
     {
         var tenant = await TenantResolver.RequireCurrentInstitutionIdAsync(_db, User, ct); var teacherId = await _db.Users.Where(x => x.Id == CurrentUserId && x.InstitutionId == tenant).Select(x => x.TeacherProfileId).FirstOrDefaultAsync(ct);
         if (!teacherId.HasValue) return [];
+        if (User.IsInRole("Teacher"))
+            return (await _db.ClassSections.Where(x => x.InstitutionId == tenant && x.TeacherProfileId == teacherId && x.IsActive).Select(x => x.SubjectId).Distinct().ToListAsync(ct)).ToHashSet();
         return (await _db.TeacherSubjects.Where(x => x.InstitutionId == tenant && x.TeacherProfileId == teacherId && x.IsActive).Select(x => x.SubjectId).ToListAsync(ct)).ToHashSet();
     }
     private async Task RequireSubjectAccess(Guid? subjectId, CancellationToken ct)
     {
         if (!subjectId.HasValue) throw new InvalidOperationException("اختيار المقرر مطلوب");
         var tenant = await TenantResolver.RequireCurrentInstitutionIdAsync(_db, User, ct); if (!await _db.Subjects.AnyAsync(x => x.Id == subjectId && x.InstitutionId == tenant, ct)) throw new KeyNotFoundException("المقرر غير موجود");
-        if (User.IsInRole("CourseSupervisor") && !(await AssignedSubjectIds(ct)).Contains(subjectId.Value)) throw new UnauthorizedAccessException("ليس لديك تكليف للإشراف على هذا المقرر");
+        if ((User.IsInRole("CourseSupervisor") || User.IsInRole("Teacher")) && !(await AssignedSubjectIds(ct)).Contains(subjectId.Value)) throw new UnauthorizedAccessException("ليس لديك تكليف نشط على هذا المقرر");
     }
     private async Task RequireExamAccess(Guid examId, CancellationToken ct)
     {
